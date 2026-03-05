@@ -1,0 +1,26 @@
+{
+  "name": "nft-mint-bot",
+  "version": "1.0.0",
+  "description": "Production-grade NFT mint bot with Telegram interface",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "pm2": "pm2 start pm2.config.js"
+  },
+  "keywords": ["nft", "mint", "bot", "ethereum", "telegram"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "grammy": "^1.19.2",
+    "ethers": "^6.10.0",
+    "better-sqlite3": "^9.3.0",
+    "dotenv": "^16.3.1",
+    "pino": "^8.17.2",
+    "pino-pretty": "^10.3.1"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

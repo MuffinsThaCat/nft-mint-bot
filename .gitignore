@@ -1,0 +1,10 @@
+node_modules/
+.env
+data/wallets.db
+data/sessions/
+*.key
+*.pem
+*.seed
+*.log
+.DS_Store
+pm2-*.log
