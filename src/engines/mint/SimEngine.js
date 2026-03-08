@@ -102,7 +102,17 @@ export class SimEngine {
         'Not whitelisted': 'Address not on whitelist',
         'Incorrect payment': 'Wrong ETH amount sent',
         'Already claimed': 'Wallet already claimed',
-        'Exceeds max supply': 'Would exceed max supply'
+        'Exceeds max supply': 'Would exceed max supply',
+        // SeaDrop-specific revert reasons
+        'InvalidFeeRecipient': 'SeaDrop: wrong fee recipient address',
+        'NotActive': 'SeaDrop: drop is not active yet',
+        'MintQuantityExceedsMaxMintedPerWallet': 'SeaDrop: exceeds per-wallet mint limit',
+        'MintQuantityExceedsMaxSupply': 'SeaDrop: would exceed max supply',
+        'IncorrectPayment': 'SeaDrop: incorrect ETH amount (check mint price)',
+        'FeeRecipientNotAllowed': 'SeaDrop: fee recipient not in allowed list',
+        'InvalidProof': 'SeaDrop: Merkle proof invalid (not on allowlist)',
+        'AllowListNotActive': 'SeaDrop: allowlist mint is not active',
+        'OnlyINonFungibleSeaDropToken': 'SeaDrop: contract not registered with SeaDrop',
       };
 
       for (const [pattern, reason] of Object.entries(commonReasons)) {

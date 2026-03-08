@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { EIP_SLOTS, COMMON_MINT_FUNCTIONS, COMMON_STATE_VARS } from '../../config/constants.js';
 import { resolveEtherscanConfig } from '../../config/chains.js';
+import { SeaDropEngine } from './SeaDropEngine.js';
 import pino from 'pino';
 
 const logger = pino({ name: 'ContractResolver' });
@@ -64,7 +65,7 @@ export class ContractResolver {
       throw new Error(`Etherscan API key not configured for ${this.chain.name}`);
     }
 
-    const url = `${this.etherscanConfig.apiUrl}?module=contract&action=getabi&address=${implementationAddress}&apikey=${this.etherscanConfig.apiKey}`;
+    const url = `${this.etherscanConfig.apiUrl}?chainid=${this.etherscanConfig.chainId}&module=contract&action=getabi&address=${implementationAddress}&apikey=${this.etherscanConfig.apiKey}`;
 
     try {
       const response = await fetch(url);
@@ -206,6 +207,7 @@ export class ContractResolver {
 
     const { abi, implementationAddress, isProxy } = await this.fetchABI(contractAddress);
     
+    const isSeaDrop = SeaDropEngine.isSeaDropContract(abi);
     const mintFunction = this.detectMintFunction(abi);
     const ercType = this.detectERCType(abi);
     const state = await this.readContractState(contractAddress, abi);
@@ -216,6 +218,7 @@ export class ContractResolver {
       isProxy,
       abi,
       ercType,
+      isSeaDrop,
       mintFunction: {
         name: mintFunction.name,
         inputs: mintFunction.inputs,
@@ -231,7 +234,11 @@ export class ContractResolver {
       }
     };
 
-    logger.info(`Analysis complete: ${ercType}, mint=${mintFunction.name}, price=${analysis.state.mintPrice}`);
+    if (isSeaDrop) {
+      logger.info(`SeaDrop contract detected — standard mint args will NOT work, use SeaDropEngine`);
+    }
+
+    logger.info(`Analysis complete: ${ercType}, mint=${mintFunction.name}, seaDrop=${isSeaDrop}, price=${analysis.state.mintPrice}`);
 
     return analysis;
   }

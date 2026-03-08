@@ -133,12 +133,24 @@ export function resolveRpcUrl(url) {
 }
 
 export function resolveEtherscanConfig(chain) {
+  // Etherscan V2 API — single endpoint for all chains, chainid parameter
+  // One ETHERSCAN_API_KEY works across every supported chain in V2.
+  // Fall back to chain-specific keys for users who still have them.
+  const CHAIN_KEY_ENV = {
+    1:     'ETHERSCAN_API_KEY',
+    8453:  'BASESCAN_API_KEY',
+    42161: 'ARBISCAN_API_KEY',
+    137:   'POLYGONSCAN_API_KEY',
+    10:    'OPTIMISTIC_ETHERSCAN_API_KEY',
+  };
+
+  const apiKey = process.env.ETHERSCAN_API_KEY
+    || process.env[CHAIN_KEY_ENV[chain.id]]
+    || '';
+
   return {
-    apiUrl: chain.etherscanApi,
-    apiKey: chain.etherscanApiKey?.replaceAll('${ETHERSCAN_API_KEY}', process.env.ETHERSCAN_API_KEY || '')
-      .replaceAll('${BASESCAN_API_KEY}', process.env.BASESCAN_API_KEY || '')
-      .replaceAll('${ARBISCAN_API_KEY}', process.env.ARBISCAN_API_KEY || '')
-      .replaceAll('${POLYGONSCAN_API_KEY}', process.env.POLYGONSCAN_API_KEY || '')
-      .replaceAll('${OPTIMISTIC_ETHERSCAN_API_KEY}', process.env.OPTIMISTIC_ETHERSCAN_API_KEY || '')
+    apiUrl: 'https://api.etherscan.io/v2/api',
+    chainId: chain.id,
+    apiKey
   };
 }

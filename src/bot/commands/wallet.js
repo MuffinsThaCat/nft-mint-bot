@@ -94,8 +94,16 @@ Use /wallets to see all
 
       const file = await ctx.getFile();
       
-      // Use Grammy's download method instead of constructing URL with token
-      const fileBuffer = await file.download();
+      if (!file.file_path) {
+        throw new Error('Telegram did not return a file path — file may be too large');
+      }
+      // Grammy ^1.x does not have file.download() — fetch manually via Bot API
+      const downloadUrl = `https://api.telegram.org/file/bot${bot.token}/${file.file_path}`;
+      const fileResponse = await fetch(downloadUrl);
+      if (!fileResponse.ok) {
+        throw new Error(`File download failed: HTTP ${fileResponse.status}`);
+      }
+      const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
       const content = fileBuffer.toString('utf-8');
 
       await ctx.ensureEngines();

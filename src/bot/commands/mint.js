@@ -56,7 +56,59 @@ export function registerMintCommands(bot) {
         throw new Error('Contract analysis failed - unable to detect mint function');
       }
 
-      const report = `
+      let report;
+
+      if (analysis.isSeaDrop) {
+        // ── SeaDrop-specific analysis ────────────────────────────
+        const sd = await ctx.session.engines.seaDropEngine.analyze(contractAddress);
+
+        const priceStr = sd.publicDrop
+          ? ethers.formatEther(sd.publicDrop.mintPrice) + ' ETH'
+          : 'Unknown';
+        const activeStr = sd.publicDrop == null ? '⚠️ Unknown' : sd.publicDrop.isActive ? '✅ Active' : '❌ Not active';
+        const startStr = sd.publicDrop?.startTime
+          ? new Date(sd.publicDrop.startTime * 1000).toUTCString()
+          : 'Unknown';
+        const endStr = sd.publicDrop?.endTime && sd.publicDrop.endTime !== 0
+          ? new Date(sd.publicDrop.endTime * 1000).toUTCString()
+          : 'No end';
+        const maxPerWallet = sd.publicDrop?.maxTotalMintableByWallet === 0 ? 'Unlimited' : (sd.publicDrop?.maxTotalMintableByWallet ?? 'Unknown');
+        const feeBps = sd.publicDrop?.feeBps != null ? (sd.publicDrop.feeBps / 100).toFixed(1) + '%' : 'Unknown';
+
+        report = `
+*📊 Contract Analysis — SeaDrop*
+
+Address: \`${analysis.address}\`
+${analysis.isProxy ? `Implementation: \`${analysis.implementationAddress}\`` : ''}
+Type: ${analysis.ercType || 'Unknown'}
+
+🌊 *SeaDrop Detected*
+SeaDrop Contract: \`${sd.seaDropAddress}\`
+
+*Public Mint*
+Status: ${activeStr}
+Price: ${priceStr}
+Max Per Wallet: ${maxPerWallet}
+Fee: ${feeBps}
+Start: ${startStr}
+End: ${endStr}
+
+*Fee Recipients*
+${sd.feeRecipients.length > 0 ? sd.feeRecipients.map(r => `  \`${r}\``).join('\n') : '❌ None configured'}
+
+*Allowlist*
+${sd.allowList.hasMerkleRoot ? `✅ Active (root: \`${sd.allowList.merkleRoot.substring(0, 18)}...\`)` : '❌ No allowlist'}
+${sd.allowList.allowListURI ? `URI: ${sd.allowList.allowListURI.length > 60 ? sd.allowList.allowListURI.substring(0, 60) + '...' : sd.allowList.allowListURI}` : ''}
+
+${sd.mintStats ? `*Supply*\nMinted: ${sd.mintStats.currentTotalSupply} / ${sd.mintStats.maxSupply}` : ''}
+
+*Actions*
+/setcontract ${contractAddress} - Set as active
+/watch ${contractAddress} - Monitor until mint opens
+`;
+      } else {
+        // ── Standard contract analysis ───────────────────────────
+        report = `
 *📊 Contract Analysis*
 
 Address: \`${analysis.address}\`
@@ -79,6 +131,7 @@ Whitelist: ${analysis.state?.supportsWhitelist ? '✅ Supported' : '❌ Not dete
 /setcontract ${contractAddress} - Set as active
 /watch ${contractAddress} - Monitor until mint opens
 `;
+      }
 
       await ctx.api.editMessageText(ctx.chat.id, statusMsg.message_id, report, { parse_mode: 'Markdown' });
 
@@ -127,22 +180,31 @@ Whitelist: ${analysis.state?.supportsWhitelist ? '✅ Supported' : '❌ Not dete
         throw new Error('No wallets available. Generate or import wallets first.');
       }
 
-      const mintArgs = await ctx.session.engines.contractResolver.detectMintArguments(
-        ctx.session.activeContract,
-        analysis.abi,
-        analysis.mintFunction,
-        wallets[0]
-      );
+      let simTarget, calldata, mintPrice;
 
-      const calldata = ctx.session.engines.contractResolver.buildMintCalldata(
-        analysis.mintFunction,
-        mintArgs
-      );
-
-      const mintPrice = analysis.state.mintPriceWei ? BigInt(analysis.state.mintPriceWei) : 0n;
+      if (analysis.isSeaDrop) {
+        // ── SeaDrop path: simulate against SeaDrop contract ──────
+        const sdMint = await ctx.session.engines.seaDropEngine.buildPublicMintCalldata(
+          ctx.session.activeContract, 1
+        );
+        simTarget = sdMint.to;
+        calldata  = sdMint.calldata;
+        mintPrice = sdMint.value;
+      } else {
+        // ── Standard path ────────────────────────────────────────
+        const mintArgs = await ctx.session.engines.contractResolver.detectMintArguments(
+          ctx.session.activeContract,
+          analysis.abi,
+          analysis.mintFunction,
+          wallets[0]
+        );
+        calldata  = ctx.session.engines.contractResolver.buildMintCalldata(analysis.mintFunction, mintArgs);
+        simTarget = ctx.session.activeContract;
+        mintPrice = analysis.state.mintPriceWei ? BigInt(analysis.state.mintPriceWei) : 0n;
+      }
 
       const simResults = await ctx.session.engines.simEngine.simulateBatch(
-        ctx.session.activeContract,
+        simTarget,
         calldata,
         wallets,
         mintPrice
@@ -160,7 +222,6 @@ Whitelist: ${analysis.state?.supportsWhitelist ? '✅ Supported' : '❌ Not dete
       const estimatedGas = simResults.successful[0]?.gas || 300000n;
       const gasParams = await ctx.session.engines.gasEngine.getGasParams(estimatedGas);
 
-      // Validate gas params structure
       if (!gasParams.maxFeePerGas && !gasParams.gasPrice) {
         await ctx.api.editMessageText(
           ctx.chat.id,
@@ -184,17 +245,19 @@ Whitelist: ${analysis.state?.supportsWhitelist ? '✅ Supported' : '❌ Not dete
             sufficient: false,
             balance: 'Error',
             required: ethers.formatEther(totalCost),
+            shortfall: 'unknown',
             error: error.message
           });
         }
       }
 
       const report = `
-*🧪 Simulation Results*
+*🧪 Simulation Results${analysis.isSeaDrop ? ' (SeaDrop)' : ''}*
 
 Total Wallets: ${wallets.length}
 ✅ Passed: ${simResults.successful.length}
 ❌ Failed: ${simResults.failed.length}
+${analysis.isSeaDrop ? `\nTarget: \`${simTarget}\` (SeaDrop)` : ''}
 
 *Cost Per Wallet*
 Mint Price: ${ethers.formatEther(mintPrice)} ETH
@@ -242,22 +305,34 @@ ${simResults.allPassed && balanceChecks.every(b => b.sufficient) ? '\n✅ *READY
         throw new Error('No wallets available. Generate or import wallets first.');
       }
 
-      const mintArgs = await ctx.session.engines.contractResolver.detectMintArguments(
-        ctx.session.activeContract,
-        analysis.abi,
-        analysis.mintFunction,
-        wallets[0]
-      );
+      let mintTarget, calldata, mintPrice;
 
-      const calldata = ctx.session.engines.contractResolver.buildMintCalldata(
-        analysis.mintFunction,
-        mintArgs
-      );
+      if (analysis.isSeaDrop) {
+        // ── SeaDrop path ─────────────────────────────────────────
+        // Public mint: same calldata for all wallets (minterIfNotPayer = 0x0 → msg.sender)
+        const sdMint = await ctx.session.engines.seaDropEngine.buildPublicMintCalldata(
+          ctx.session.activeContract, 1
+        );
+        mintTarget = sdMint.to;       // SeaDrop contract, NOT the NFT
+        calldata   = sdMint.calldata;
+        mintPrice  = sdMint.value;
 
-      const mintPrice = analysis.state.mintPriceWei ? BigInt(analysis.state.mintPriceWei) : 0n;
+        logger.info(`SeaDrop mint: target=${mintTarget}, feeRecipient=${sdMint.feeRecipient}, price=${ethers.formatEther(mintPrice)} ETH`);
+      } else {
+        // ── Standard path ────────────────────────────────────────
+        const mintArgs = await ctx.session.engines.contractResolver.detectMintArguments(
+          ctx.session.activeContract,
+          analysis.abi,
+          analysis.mintFunction,
+          wallets[0]
+        );
+        calldata   = ctx.session.engines.contractResolver.buildMintCalldata(analysis.mintFunction, mintArgs);
+        mintTarget = ctx.session.activeContract;
+        mintPrice  = analysis.state.mintPriceWei ? BigInt(analysis.state.mintPriceWei) : 0n;
+      }
 
       const prep = await ctx.session.engines.mintEngine.prepareForMint(
-        ctx.session.activeContract,
+        mintTarget,
         calldata,
         mintPrice,
         wallets
@@ -272,9 +347,10 @@ ${simResults.allPassed && balanceChecks.every(b => b.sufficient) ? '\n✅ *READY
       }
 
       await ctx.reply(
-        `✅ *Pre-flight check PASSED*\n\n` +
-        `${prep.report.passed}/${prep.report.totalWallets} wallets ready\n\n` +
-        `Starting mint in 3 seconds...\n\nUse /stop to cancel`,
+        `✅ *Pre-flight check PASSED${analysis.isSeaDrop ? ' (SeaDrop)' : ''}*\n\n` +
+        `${prep.report.passed}/${prep.report.totalWallets} wallets ready\n` +
+        `${analysis.isSeaDrop ? `Target: \`${mintTarget}\`\n` : ''}` +
+        `\nStarting mint in 3 seconds...\n\nUse /stop to cancel`,
         { parse_mode: 'Markdown' }
       );
 
@@ -292,7 +368,7 @@ ${simResults.allPassed && balanceChecks.every(b => b.sufficient) ? '\n✅ *READY
       const chain = getChain(ctx.session.activeChain);
 
       const results = await ctx.session.engines.mintEngine.mintAll(
-        ctx.session.activeContract,
+        mintTarget,
         calldata,
         mintPrice,
         chain.id,
@@ -320,7 +396,7 @@ Total: ${progress.total}
       ctx.session.engines.txEngine.stopAllMonitoring();
       
       const finalReport = `
-✅ *MINT COMPLETE*
+✅ *MINT COMPLETE${analysis.isSeaDrop ? ' (SeaDrop)' : ''}*
 
 Total: ${results.total}
 Confirmed: ${results.confirmed.length}

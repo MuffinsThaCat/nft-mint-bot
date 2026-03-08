@@ -11,6 +11,7 @@ import { MintEngine } from '../engines/mint/MintEngine.js';
 import { MonitorEngine } from '../engines/monitor/MonitorEngine.js';
 import { MerkleEngine } from '../engines/strategy/MerkleEngine.js';
 import { StrategyEngine } from '../engines/strategy/StrategyEngine.js';
+import { SeaDropEngine } from '../engines/mint/SeaDropEngine.js';
 import { getChain } from '../config/chains.js';
 import pino from 'pino';
 
@@ -327,6 +328,11 @@ Kill Switch: ${killSwitchStatus}
 
     if (!ctx.session.engines.strategyEngine) {
       ctx.session.engines.strategyEngine = new StrategyEngine(this.db);
+    }
+
+    if (!ctx.session.engines.seaDropEngine) {
+      const chain = getChain(ctx.session.activeChain);
+      ctx.session.engines.seaDropEngine = new SeaDropEngine(ctx.session.rpcPool, chain.id);
     }
   }
 

@@ -80,7 +80,10 @@ export const COMMON_MINT_FUNCTIONS = [
   'safeMint',
   'mintNFT',
   'purchase',
-  'buy'
+  'buy',
+  'mintSeaDrop',
+  'mintPublic',
+  'mintAllowList',
 ];
 
 export const COMMON_STATE_VARS = {
